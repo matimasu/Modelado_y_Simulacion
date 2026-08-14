@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.env
+
+# Imágenes generadas
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.svg
