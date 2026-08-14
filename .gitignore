@@ -3,3 +3,12 @@ __pycache__/
 venv/
 .venv/
 *.env
+
+# Imágenes generadas
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.svg
