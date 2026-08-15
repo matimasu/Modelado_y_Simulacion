@@ -61,11 +61,17 @@ def newton_raphson(f_num, df_num, x0, tol, max_iter):
             break
 
         x_siguiente = x_actual - f_val / df_val
-        error = abs(x_siguiente - x_actual)
+        error_abs = abs(x_siguiente - x_actual)
 
-        tabla.append([i, x_actual, f_val, df_val, x_siguiente, error])
+        # Error relativo porcentual: |x_(n+1) - x_n| / |x_(n+1)| * 100
+        if x_siguiente != 0:
+            error_rel = abs((x_siguiente - x_actual) / x_siguiente) * 100
+        else:
+            error_rel = float("nan")
 
-        if error < tol:
+        tabla.append([i, x_actual, f_val, df_val, x_siguiente, error_abs, error_rel])
+
+        if error_abs < tol:
             x_actual = x_siguiente
             break
 
@@ -75,7 +81,10 @@ def newton_raphson(f_num, df_num, x0, tol, max_iter):
 
 
 def mostrar_tabla(tabla):
-    headers = ["n", "x_n", "f(x_n)", "f'(x_n)", "x_(n+1)", "Error |x_(n+1)-x_n|"]
+    headers = [
+        "n", "x_n", "f(x_n)", "f'(x_n)", "x_(n+1)",
+        "Error absoluto", "Error relativo porcentual"
+    ]
     print("\nTabla de iteraciones:")
     print(tabulate(tabla, headers=headers, floatfmt=".8f", tablefmt="grid"))
 

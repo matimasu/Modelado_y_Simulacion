@@ -12,8 +12,12 @@ El script:
 
          x_hat_n = x_n - (x_(n+1) - x_n)^2 / (x_(n+2) - 2*x_(n+1) + x_n)
 
-  5. Imprime una tabla con todas las iteraciones (sucesión original
-     y sucesión acelerada de Aitken).
+  5. Imprime una tabla con numeración CONTINUA (sin repetir filas): cada
+     valor calculado (por punto fijo o por Aitken) tiene su propio número
+     de fila único, una columna indica si se calculó como "Punto Fijo" o
+     como "Aitken", y todos los valores se muestran con 10 cifras
+     decimales. El x̂ de Aitken de una ronda pasa a ser la semilla de la
+     siguiente sin volver a imprimirse como fila aparte.
   6. Grafica g(x), la recta y=x (para visualizar el punto fijo),
      la trayectoria de iteración tipo "telaraña" (cobweb) y los
      valores acelerados de Aitken.
@@ -56,56 +60,86 @@ def pedir_parametros():
 def aitken(g_num, x0, tol, max_iter):
     """
     Genera la sucesión de punto fijo y aplica Aitken en cada tripla disponible.
-    Devuelve la tabla de iteraciones y el mejor valor acelerado encontrado.
+
+    En vez de reiniciar la numeración en cada ronda, cada valor calculado
+    (ya sea por punto fijo x_(n+1)=g(x_n), o por la aceleración de Aitken)
+    se numera de forma CONTINUA y única (1, 2, 3, 4, ...), sin repetir
+    ningún valor: el x̂ de Aitken de una ronda pasa a ser la semilla de la
+    siguiente sin volver a imprimirse como fila aparte.
+
+    Devuelve:
+        filas       : lista de [n, tipo, valor, error], donde tipo es
+                      "Punto Fijo" o "Aitken", y error es la diferencia
+                      absoluta contra el valor inmediatamente anterior.
+        x_hat_final : el mejor valor acelerado encontrado.
     """
-    tabla = []
-    xs = [x0]  # sucesión de punto fijo pura
+    filas = []
+    n = 0
+    x_semilla = x0
+    valor_anterior = x0
     x_hat_final = x0
 
-    for i in range(max_iter):
-        x_n = xs[-1]
+    for _ in range(max_iter):
+        x_n = x_semilla
+
         x_n1 = g_num(x_n)
-        xs.append(x_n1)
+        n += 1
+        error = abs(x_n1 - valor_anterior)
+        filas.append([n, "Punto Fijo", x_n1, error])
+        valor_anterior = x_n1
 
         x_n2 = g_num(x_n1)
-        xs.append(x_n2)
+        n += 1
+        error = abs(x_n2 - valor_anterior)
+        filas.append([n, "Punto Fijo", x_n2, error])
+        valor_anterior = x_n2
 
         denom = x_n2 - 2 * x_n1 + x_n
 
         if denom == 0:
             # Evita división por cero: si ya convergió exactamente, cortamos.
             x_hat = x_n2
-            error = abs(x_hat - x_hat_final)
-            tabla.append([i + 1, x_n, x_n1, x_n2, "—", error])
+            n += 1
+            error = abs(x_hat - valor_anterior)
+            filas.append([n, "Aitken", x_hat, error])
             x_hat_final = x_hat
             break
 
         x_hat = x_n - (x_n1 - x_n) ** 2 / denom
-        error = abs(x_hat - x_hat_final)
-
-        tabla.append([i + 1, x_n, x_n1, x_n2, x_hat, error])
-
+        n += 1
+        error = abs(x_hat - valor_anterior)
+        filas.append([n, "Aitken", x_hat, error])
+        valor_anterior = x_hat
         x_hat_final = x_hat
 
         if error < tol:
             break
 
-        # La siguiente iteración vuelve a arrancar desde el valor acelerado
-        # (esto es lo que se conoce como "Aitken reiniciado" y mejora la velocidad)
-        xs = [x_hat]
+        # La siguiente ronda arranca desde el valor acelerado (Aitken
+        # reiniciado), sin volver a imprimirlo como fila nueva.
+        x_semilla = x_hat
 
-    return tabla, x_hat_final
+    return filas, x_hat_final
 
 
-def mostrar_tabla(tabla):
-    headers = ["n", "x_n", "x_(n+1)=g(x_n)", "x_(n+2)=g(x_n+1)", "x_hat (Aitken)", "Error"]
+def mostrar_tabla(filas):
+    """
+    Muestra la tabla de iteraciones con numeración continua (sin repetir
+    filas), una columna que indica si el valor se calculó por Punto Fijo
+    o por Aitken, y todos los valores con 10 cifras decimales.
+    """
+    filas_fmt = [
+        [n, tipo, f"{valor:.10f}", f"{error:.10f}"]
+        for n, tipo, valor, error in filas
+    ]
+    headers = ["n", "Tipo", "Valor", "Error"]
     print("\nTabla de iteraciones:")
-    print(tabulate(tabla, headers=headers, floatfmt=".8f", tablefmt="grid"))
+    print(tabulate(filas_fmt, headers=headers, tablefmt="grid", disable_numparse=True))
 
 
-def graficar(g_num, tabla, raiz, x0):
-    # Puntos relevantes para definir el rango del gráfico
-    puntos = [x0, raiz] + [fila[4] for fila in tabla if isinstance(fila[4], float)]
+def graficar(g_num, filas, raiz, x0):
+    # Puntos relevantes para definir el rango del gráfico (valores acelerados de Aitken)
+    puntos = [x0, raiz] + [valor for _, tipo, valor, _ in filas if tipo == "Aitken"]
     margen = max(1.0, (max(puntos) - min(puntos)) * 1.5 if len(puntos) > 1 else 2.0)
     x_min = min(puntos) - margen
     x_max = max(puntos) + margen
@@ -127,9 +161,10 @@ def graficar(g_num, tabla, raiz, x0):
     plt.plot(x_vals, x_vals, "--", color="gray", linewidth=1, label="y = x")
 
     # Trayectoria tipo "telaraña" (cobweb plot) usando la sucesión sin acelerar
+    rondas = sum(1 for _, tipo, _, _ in filas if tipo == "Aitken")
     x_actual = x0
     cx, cy = [x_actual], [x_actual]
-    for _ in range(min(len(tabla) * 2, 40)):
+    for _ in range(min(rondas * 2, 40)):
         x_sig = g_num(x_actual)
         cx += [x_actual, x_sig]
         cy += [x_sig, x_sig]
@@ -159,18 +194,19 @@ def main():
     g_expr, g_num = obtener_funcion()
     x0, tol, max_iter = pedir_parametros()
 
-    tabla, raiz = aitken(g_num, x0, tol, max_iter)
+    filas, raiz = aitken(g_num, x0, tol, max_iter)
 
-    if not tabla:
+    if not filas:
         print("No se realizó ninguna iteración.")
         return
 
-    mostrar_tabla(tabla)
+    mostrar_tabla(filas)
 
-    print(f"\nResultado final (Aitken): x ≈ {raiz:.8f}")
-    print(f"Iteraciones realizadas: {len(tabla)}")
+    rondas = sum(1 for _, tipo, _, _ in filas if tipo == "Aitken")
+    print(f"\nResultado final (Aitken): x ≈ {raiz:.10f}")
+    print(f"Rondas de Aitken realizadas: {rondas}  (total de filas calculadas: {len(filas)})")
 
-    graficar(g_num, tabla, raiz, x0)
+    graficar(g_num, filas, raiz, x0)
 
 
 if __name__ == "__main__":
