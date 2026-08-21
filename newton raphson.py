@@ -52,7 +52,7 @@ def newton_raphson(f_num, df_num, x0, tol, max_iter):
     tabla = []
     x_actual = x0
 
-    for i in range(1, max_iter + 1):
+    for i in range(0, max_iter + 1):
         f_val = f_num(x_actual)
         df_val = df_num(x_actual)
 
