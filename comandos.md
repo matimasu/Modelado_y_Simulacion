@@ -90,6 +90,8 @@ math.copysign(abs(x)**(1/n), x)
 |---|---|---|
 | `newton raphson.py` | sympy | sin prefijo (`sin(x)`, `root(x, n)`, `pi`) |
 | `aitken.py` | sympy | sin prefijo |
+| `lagrange.py` | sympy | sin prefijo (nodos y x aceptan fracciones y `pi`) |
+| `integracion_numerica.py` | sympy | sin prefijo (`sin(x)`, `exp(x)`, `pi`) |
 | `algoritmo de biseccion.py` | math | `math.` (agregar `np` manualmente si se quiere) |
 | `metodo del punto fijo.py` | math | `math.` (agregar `np` manualmente si se quiere) |
 

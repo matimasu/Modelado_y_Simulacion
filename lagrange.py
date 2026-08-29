@@ -7,9 +7,11 @@ Dado un conjunto de n nodos (x_i, y_i) ingresados por el usuario, el script:
      siempre en fracciones exactas (nunca en decimal).
   3. Desarrolla el polinomio de Lagrange P(x) = sum(y_i * L_i(x)) y lo
      reduce a su mínima expresión (términos agrupados por grado).
-  4. Calcula el error local en cada nodo (P(x_i) - y_i) y el error
-     global (suma y máximo de los errores locales absolutos), como
-     verificación de que la interpolación pasa exactamente por los datos.
+  4. Si se le da la función original f(x) y un punto x, calcula la cota
+     de error de interpolación:
+        |f(x) - P(x)| <= M/(n+1)! * |prod_{i=0}^{n} (x - x_i)|
+     con M = máx |f^(n+1)(ξ)| en el intervalo que contiene los nodos y x.
+     Si no se ingresa f(x) (línea vacía), se omite este cálculo.
 
 Requiere: sympy, matplotlib, numpy
     pip install sympy matplotlib numpy
@@ -23,14 +25,16 @@ x = sp.symbols('x')
 
 
 def parsear_fraccion(texto):
-    """Convierte un string ('3', '-1/2', '2.5', etc.) en un sympy.Rational exacto."""
+    """Convierte un string ('3', '-1/2', '2.5', 'pi', 'pi/2', etc.) en un valor
+    exacto de sympy: racionaliza los decimales pero deja pi simbólico (sin
+    aproximar a decimal)."""
     return sp.nsimplify(sp.sympify(texto), rational=True)
 
 
 def pedir_nodos():
     """Pide pares x,y hasta que se ingrese una línea vacía. Devuelve listas (xs, ys) de Rational."""
     xs, ys = [], []
-    print("Ingresá los nodos como 'x,y' (podés usar fracciones, ej: 1/2,3). Línea vacía para terminar.\n")
+    print("Ingresá los nodos como 'x,y' (podés usar fracciones o pi, ej: 1/2,3  o  pi/2,-1). Línea vacía para terminar.\n")
     i = 0
     while True:
         linea = input(f"Nodo {i}: ").strip()
@@ -75,18 +79,19 @@ def bases_de_lagrange(xs):
 
 def formatear_polinomio(expr, var=x):
     """Convierte un polinomio en string sin ambigüedad: coeficientes fraccionarios
-    entre paréntesis, ej: (-1/12)*x**3, para que no se confunda con x**(3/12)."""
+    (o con pi) entre paréntesis, ej: (-1/12)*x**3 o (pi/2)*x**2, para que no se
+    confunda con x**(3/12)."""
     poli = sp.Poly(expr, var)
     terminos = []
     for (grado,), coef in poli.terms():
         coef = sp.nsimplify(coef, rational=True)
-        signo = "-" if coef < 0 else "+"
-        coef_abs = abs(coef)
+        signo = "-" if coef.could_extract_minus_sign() else "+"
+        coef_abs = -coef if signo == "-" else coef
 
-        if coef_abs.q != 1:
-            coef_str = f"({coef_abs})"
-        else:
+        if coef_abs.is_Integer:
             coef_str = str(coef_abs)
+        else:
+            coef_str = f"({coef_abs})"
 
         if grado == 0:
             termino = coef_str
@@ -130,25 +135,95 @@ def mostrar_polinomio(p):
     print(f"P(x) = {formatear_polinomio(p)}")
 
 
-def errores(xs, ys, p):
-    """Error local en cada nodo: P(x_i) - y_i. Error global: suma y máximo de |error local|."""
-    locales = []
-    for xi, yi in zip(xs, ys):
-        valor = sp.nsimplify(p.subs(x, xi), rational=True)
-        locales.append(sp.nsimplify(valor - yi, rational=True))
-    suma = sp.nsimplify(sum(abs(e) for e in locales), rational=True)
-    maximo = max(locales, key=abs) if locales else sp.Integer(0)
-    return locales, suma, maximo
+def pedir_funcion_original():
+    """Pide f(x) para poder acotar el error. Línea vacía -> se omite el cálculo."""
+    texto = input("\nFunción original f(x) para la cota de error (opcional, Enter para omitir): ").strip()
+    if texto == "":
+        return None
+    try:
+        return sp.sympify(texto)
+    except (sp.SympifyError, TypeError):
+        print("  -> Expresión inválida, se omite el cálculo de la cota de error.")
+        return None
 
 
-def mostrar_errores(xs, locales, suma, maximo):
-    print("\n=== Errores locales (P(x_i) - y_i) ===")
-    for xi, e in zip(xs, locales):
-        print(f"  x = {str(xi):>6}  ->  error local = {e}")
+def pedir_x_evaluacion():
+    """Pide el punto x donde se quiere estimar la cota de error."""
+    while True:
+        texto = input("Valor de x en el que querés estimar la cota de error: ").strip()
+        try:
+            return parsear_fraccion(texto)
+        except (ValueError, sp.SympifyError, TypeError):
+            print("  -> Valor inválido, probá de nuevo (ej: 2, 1/2, pi/3).")
 
-    print("\n=== Error global ===")
-    print(f"  Suma de errores locales absolutos = {suma}")
-    print(f"  Error local máximo (absoluto)     = {abs(maximo)}")
+
+def maximo_productoria(xs, a, b):
+    """Máximo de |g(t)| en [a, b], con g(t) = prod_{i=0}^{n} (t - x_i).
+    Se halla igualando g'(t) = 0, tomando las raíces reales dentro de [a, b]
+    y comparando |g| en esas raíces junto con los extremos del intervalo."""
+    t = sp.symbols('t')
+    g = sp.expand(sp.Mul(*[t - xi for xi in xs]))
+    gp = sp.diff(g, t)
+
+    candidatos = [a, b]
+    coeficientes = sp.Poly(gp, t).all_coeffs()
+    if len(coeficientes) > 1:
+        raices = np.roots([float(c) for c in coeficientes])
+        for r in raices:
+            if abs(r.imag) < 1e-9 and a - 1e-9 <= r.real <= b + 1e-9:
+                candidatos.append(float(r.real))
+
+    g_num = sp.lambdify(t, g, "numpy")
+    punto = max(candidatos, key=lambda c: abs(float(g_num(c))))
+    valor = abs(float(g_num(punto)))
+    return punto, valor
+
+
+def cota_error(f_expr, xs, x_eval):
+    """Cota de error de interpolación:
+        |f(x) - P(x)| <= M/(n+1)! * max|prod_{i=0}^{n} (x - x_i)|
+    con M = máx |f^(n+1)(ξ)| en el intervalo que contiene los nodos y x
+    (estimado numéricamente por muestreo denso del intervalo), y el máximo
+    de la productoria hallado igualando su derivada a 0 y comparando raíces."""
+    orden = len(xs)  # n+1, con n = grado del polinomio = len(xs) - 1
+    derivada = sp.simplify(sp.diff(f_expr, x, orden))
+
+    extremos = [float(v) for v in xs + [x_eval]]
+    a, b = min(extremos), max(extremos)
+
+    derivada_num = sp.lambdify(x, derivada, "numpy")
+    malla = np.linspace(a, b, 20000)
+    valores = np.abs(derivada_num(malla) * np.ones_like(malla))
+    M = float(np.max(valores))
+
+    punto_producto, max_producto = maximo_productoria(xs, a, b)
+    factorial = sp.factorial(orden)
+    cota = M / float(factorial) * max_producto
+
+    return {
+        "orden": orden,
+        "derivada": derivada,
+        "intervalo": (a, b),
+        "M": M,
+        "punto_producto": punto_producto,
+        "max_producto": max_producto,
+        "factorial": factorial,
+        "cota": cota,
+    }
+
+
+def mostrar_cota_error(x_eval, r):
+    print("\n=== Cota de error de interpolación ===")
+    print(f"Punto x solicitado: {x_eval}")
+    print(f"Orden de la derivada: n+1 = {r['orden']}")
+    print(f"f^({r['orden']})(x) = {r['derivada']}")
+    print(f"Intervalo considerado (nodos y x): [{r['intervalo'][0]:.6g}, {r['intervalo'][1]:.6g}]")
+    print(f"M = max |f^({r['orden']})(xi)| en el intervalo (estimado numericamente) ~= {r['M']:.6g}")
+    print(f"max |productoria (x - x_i), i=0..n| en el intervalo, hallado en x ~= {r['punto_producto']:.6g}"
+          f"  ->  ~= {r['max_producto']:.6g}")
+    print(f"(n+1)! = {r['factorial']}")
+    print(f"\n|f(x) - P(x)| <= M/(n+1)! * max|producto|  ~=  {r['M']:.6g}/{r['factorial']} * {r['max_producto']:.6g}"
+          f"  ~=  {r['cota']:.6g}")
 
 
 def graficar(p, xs, ys):
@@ -198,8 +273,11 @@ def main():
     p = polinomio_de_lagrange(xs, ys, bases)
     mostrar_polinomio(p)
 
-    locales, suma, maximo = errores(xs, ys, p)
-    mostrar_errores(xs, locales, suma, maximo)
+    f_expr = pedir_funcion_original()
+    if f_expr is not None:
+        x_eval = pedir_x_evaluacion()
+        resultado = cota_error(f_expr, xs, x_eval)
+        mostrar_cota_error(x_eval, resultado)
 
     graficar(p, xs, ys)
 
